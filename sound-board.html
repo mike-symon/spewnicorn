@@ -1,0 +1,245 @@
+<!DOCTYPE html><html lang="en-NZ"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spewnicorn - Sound Board</title><style>
+body{margin:0;font-family:-apple-system,system-ui,sans-serif;background:#ffe3f3;color:#5a3a6a;padding:16px 14px 40px}
+h1{font-size:24px;margin:4px 0 4px}p{margin:0 0 14px;font-size:14px}
+button{display:block;width:100%;min-height:64px;margin:0 0 10px;font-size:19px;text-align:left;padding:14px 16px;border:0;border-radius:16px;background:#fff;color:#5a3a6a;box-shadow:0 2px 6px rgba(150,80,150,.2);-webkit-tap-highlight-color:transparent}
+button:active{background:#ffd0ea;transform:scale(.98)}b{color:#ff5fa2}
+</style></head><body><h1>🦄🌈 Spewnicorn Sound Board</h1><p>Tap a button to hear that sound. 🗣️ = spoken by the device's voice (picks a random line; needs sound on, not silent mode).</p>
+<button onclick="play(0)"><b>1.</b> Shot - barf (blegh)</button>
+<button onclick="play(1)"><b>2.</b> Streak chime level 1</button>
+<button onclick="play(2)"><b>3.</b> Streak chime level 3</button>
+<button onclick="play(3)"><b>4.</b> Streak chime level 5 (cascade)</button>
+<button onclick="play(4)"><b>5.</b> Streak chime level 6+ (with fanfare)</button>
+<button onclick="play(5)"><b>6.</b> Fanfare on its own (part of streak 6+)</button>
+<button onclick="play(6)"><b>7.</b> Leprechaun hit - grunt + fiery boom (as in game)</button>
+<button onclick="play(7)"><b>8.</b> Leprechaun grunt on its own</button>
+<button onclick="play(8)"><b>9.</b> Crunchy fiery explosion boom on its own</button>
+<button onclick="play(9)"><b>10.</b> Ka-ching (leprechaun grabs 5%)</button>
+<button onclick="play(10)"><b>11.</b> Ka-ching (gold back +2.5%, same sound)</button>
+<button onclick="play(11)"><b>12.</b> Leprechaun laugh (escaped)</button>
+<button onclick="play(12)"><b>13.</b> Oops (unicorn hit by accident)</button>
+<button onclick="play(13)"><b>14.</b> Oh no / game over</button>
+<button onclick="play(14)"><b>15.</b> Irish line - running in (random) 🗣️</button>
+<button onclick="play(15)"><b>16.</b> Irish line - grab (random) 🗣️</button>
+<button onclick="play(16)"><b>17.</b> Irish line - defeated (random) 🗣️</button>
+<button onclick="play(17)"><b>18.</b> Synth mutter (fallback when the device has no speech)</button>
+<button onclick="play(18)"><b>19.</b> Irish line - grumpy (unused) 🗣️</button>
+<button onclick="play(19)"><b>20.</b> Growly mutter (unused, grumpy fallback)</button>
+<button onclick="play(20)"><b>21.</b> Electric zap (unused, old shot)</button>
+<button onclick="play(21)"><b>22.</b> Pony whinny (unused)</button>
+<button onclick="play(22)"><b>23.</b> Boing + slide whistle + poof (unused, old defeat)</button>
+<button onclick="play(23)"><b>24.</b> Coin chime (unused)</button>
+<button onclick="play(24)"><b>25.</b> Pop (unused)</button>
+<button onclick="play(25)"><b>26.</b> Cannon upgrade! (level up)</button>
+<button onclick="play(26)"><b>27.</b> Unicorn snort (grumpy, on accidental hit)</button>
+<button onclick="play(27)"><b>28.</b> Unicorn huff (grumpy)</button>
+<button onclick="play(28)"><b>29.</b> Grumbly neigh (grumpy)</button>
+<button onclick="play(29)"><b>30.</b> Harrumph (grumpy)</button>
+<script>
+"use strict";
+// WebAudio synth sounds. No audio files needed.
+const Sound = (() => {
+  let AC = null, master = null, zapBus = null, punch = null, unlocked = false, muted = localStorage.getItem('rbu_mute') === '1';
+  function init() {
+    if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+    try { AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = muted ? 0 : 0.6; const soft = AC.createBiquadFilter(); soft.type = "lowpass"; soft.frequency.value = 2600; soft.Q.value = 0.5; master.connect(soft); soft.connect(AC.destination);
+      // zap gets its own brighter bus (6 kHz lowpass) so it stays crisp
+      punch = makePunch(AC, AC.destination); punch.gain.value = muted ? 0 : 1; // grunt + boom bus: bypasses the 2600 Hz soft filter, brick-wall limited
+      zapBus = AC.createGain(); zapBus.gain.value = muted ? 0 : 0.6; const zlp = AC.createBiquadFilter(); zlp.type = 'lowpass'; zlp.frequency.value = 6000; zlp.Q.value = 0.5; zapBus.connect(zlp); zlp.connect(AC.destination);
+    } catch (e) { AC = null; }
+    unlock();
+  }
+  function makePunch(c, out) { const g = c.createGain(), lim = c.createDynamicsCompressor();
+    lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.12; g.connect(lim); lim.connect(out); return g; }
+  // iOS: first tap must start audio + speech inside the gesture
+  function unlock() { if (unlocked || !AC) return; unlocked = true;
+    try { const b = AC.createBuffer(1, 1, 22050), s = AC.createBufferSource(); s.buffer = b; s.connect(AC.destination); s.start(0); if (AC.state !== 'running') AC.resume(); } catch (e) {}
+    try { if (window.speechSynthesis && window.SpeechSynthesisUtterance) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } } catch (e) {} }
+  function tone(type, f0, f1, dur, vol = 0.3, delay = 0) {
+    if (!AC || muted) return;
+    const t = AC.currentTime + delay, o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05);
+  }
+  // Cute pony whinny/nicker: fast-vibrato descending glide + soft blubbery lip trill.
+  function whinny(pitch = 1) {
+    if (!AC || muted) return;
+    const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain(), lfo = AC.createOscillator(), lg = AC.createGain(), f = AC.createBiquadFilter();
+    o.type = 'triangle'; o.frequency.setValueAtTime(700 * pitch, t); o.frequency.linearRampToValueAtTime(1000 * pitch, t + 0.12); o.frequency.exponentialRampToValueAtTime(330 * pitch, t + 0.75);
+    lfo.frequency.setValueAtTime(9, t); lfo.frequency.linearRampToValueAtTime(15, t + 0.7); lg.gain.value = 70 * pitch; lfo.connect(lg); lg.connect(o.frequency);
+    f.type = 'bandpass'; f.frequency.value = 1100 * pitch; f.Q.value = 0.8;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.28, t + 0.05); g.gain.setValueAtTime(0.24, t + 0.5); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.8);
+    o.connect(f); f.connect(g); g.connect(master); o.start(t); lfo.start(t); o.stop(t + 0.85); lfo.stop(t + 0.85);
+    // lip trill "brrr": low tone amplitude-gated at ~28 Hz
+    const b = AC.createOscillator(), bg = AC.createGain(), am = AC.createOscillator(), amg = AC.createGain(), t2 = t + 0.75;
+    b.type = 'triangle'; b.frequency.value = 140 * pitch; am.type = 'square'; am.frequency.value = 28; amg.gain.value = 0.07; bg.gain.value = 0.0001;
+    am.connect(amg); amg.connect(bg.gain); bg.gain.setValueAtTime(0.07, t2); bg.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.3);
+    b.connect(bg); bg.connect(master); b.start(t2); am.start(t2); b.stop(t2 + 0.32); am.stop(t2 + 0.32);
+  }
+  const bleurgh = whinny; // old name kept as alias
+  // ---- Ported from Faterpillar (index.html): ftone(), munch() streak ladder -> streakChime(), fanfare() ----
+  function ftone(f, t0, dur, type, vol, f2) { if (!AC || muted) return; const t = AC.currentTime + t0, o = AC.createOscillator(), g = AC.createGain(); o.type = type || 'sine'; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.3, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.05); }
+  function fanfare_(d, v, b) { return fanfare(d, v, b); }
+  function fanfare(d, v, b) { b = b || 392; [1, 1.25, 1.5, 2].forEach((m, i) => { ftone(b * m, d + i * 0.12, 0.3, 'triangle', v || 0.25); ftone(b * m * 2, d + i * 0.12, 0.2, 'sine', (v || 0.25) / 2); }); ftone(b * 2, d + 0.5, 0.8, 'triangle', v || 0.25); ftone(b * 2.5, d + 0.5, 0.8, 'sine', (v || 0.25) * 0.7); }
+  // Escalating pokie-style chime: same ladder as Faterpillar munch(streak), minus the munch crunch.
+  function streakChime(streak) { const base = 330 * Math.pow(1.06, Math.min(streak, 16)), d = 0.35, q = 0.45; // q = quieter, sits under the whinny
+    const ftone_ = ftone; { const ftone = (f, t0, dur, ty, v, f2) => ftone_(f, t0, dur, ty, (v || 0.3) * q, f2); const fanfare = (d, v, b) => fanfare_(d, (v || 0.25) * q, b);
+    ftone(base, d + 0.05, 0.18, 'triangle', 0.3, base * 1.5);
+    if (streak >= 2) ftone(base * 1.25, d + 0.1, 0.25, 'sine', 0.25);
+    if (streak >= 3) ftone(base * 1.5, d + 0.15, 0.3, 'sine', 0.22);
+    if (streak >= 4) { for (let i = 0; i < Math.min(streak, 8); i++) ftone(base * 2 * (1 + i * 0.12), d + 0.18 + i * 0.04, 0.25, 'sine', 0.12); }
+    if (streak >= 6) fanfare(d + 0.3, 0.18, base / 2); } }
+  function noise(t0, dur, vol, freq, q) { if (!AC || muted) return; const t = AC.currentTime + t0, n = AC.createBuffer(1, AC.sampleRate * dur, AC.sampleRate), d = n.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
+    const b = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain(); b.buffer = n; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1; g.gain.value = vol;
+    b.connect(f); f.connect(g); g.connect(master); b.start(t); }
+  // Pot of gold lands: bright coin chime
+  function coin() { ftone(988, 0, 0.12, 'triangle', 0.12); ftone(1319, 0.08, 0.35, 'triangle', 0.12); ftone(2637, 0.1, 0.3, 'sine', 0.06); }
+  // Leprechaun escapes with pot: cheeky "hee-hee-hee"
+  function laugh() { for (let i = 0; i < 4; i++) { ftone(900 - i * 40, i * 0.13, 0.1, 'triangle', 0.22, 1300 - i * 60); ftone(1800 - i * 80, i * 0.13, 0.08, 'sine', 0.06); } }
+  // Leprechaun defeated: springy boing -> descending slide whistle (spin) -> sparkly poof
+  function defeat() { if (!AC || muted) return;
+    const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain(), l = AC.createOscillator(), lg = AC.createGain();
+    o.type = 'triangle'; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(520, t + 0.08); o.frequency.exponentialRampToValueAtTime(160, t + 0.35);
+    l.frequency.value = 22; lg.gain.value = 35; l.connect(lg); lg.connect(o.frequency);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    o.connect(g); g.connect(master); o.start(t); l.start(t); o.stop(t + 0.45); l.stop(t + 0.45);
+    ftone(1800, 0.35, 0.65, 'sine', 0.18, 500);                     // slide whistle down
+    noise(0.95, 0.35, 0.5, 3000, 0.8);                              // poof
+    [1047, 1319, 1568, 2093, 2637].forEach((f, i) => ftone(f, 1.0 + i * 0.05, 0.25, 'sine', 0.12)); }
+  // Ka-ching: register bell ding + coin rattle
+  function kaching() { ftone(1568, 0, 0.5, 'sine', 0.16); ftone(2093, 0.0, 0.45, 'triangle', 0.08); ftone(3136, 0.01, 0.25, 'sine', 0.04);
+    for (let i = 0; i < 7; i++) { ftone(2400 + Math.random() * 1600, 0.12 + i * 0.035 + Math.random() * 0.01, 0.05, 'triangle', 0.05); noise(0.12 + i * 0.035, 0.03, 0.12, 4500, 3); } }
+  // Leprechaun mutters in Irish: speechSynthesis (en-IE > en-GB > any), synth gibberish fallback.
+  const PHRASES = { run: ["Me gold!", "Top o' the mornin'!", "Begorrah!", "Ah, to be sure!", "That's mine, so it is!", "Hee hee, me pot!"],
+    grab: ["Me gold!", "That's mine, so it is!", "Got it, so I have!", "Ah, to be sure!"],
+    grumpy: ["Ah, would ya stop!", "Ugh, me lovely coat!", "Not again, ya eejit!", "Grrr, rainbows!", "Away with ye!", "Ah, for the love of shamrocks!", "Well that's just grand.", "Me mane's ruined!"],
+    defeat: ["Oh, bother me boots!", "Ah, flippin' rainbows!", "Fiddle-dee-dee!", "Oh, me poor hat!", "Jumpin' shamrocks!"] };
+  let voice = null, lastSay = 0, lastPrio = 0;
+  function pickVoice() { const vs = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+    voice = vs.find(v => /en[-_]IE/i.test(v.lang)) || vs.find(v => /en[-_]GB/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || vs[0] || null; }
+  if (window.speechSynthesis) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+  function growl() { for (let i = 0, n = 3 + (Math.random() * 3 | 0); i < n; i++) { const f = 140 + Math.random() * 80; ftone(f, i * 0.13, 0.12, 'sawtooth', 0.07, f * 0.8); ftone(f * 2, i * 0.13, 0.1, 'triangle', 0.05, f * 1.5); } }
+  function gibberish() { for (let i = 0, n = 4 + (Math.random() * 4 | 0); i < n; i++) { const f = 500 + Math.random() * 400; ftone(f, i * 0.09, 0.08, 'triangle', 0.1, f * (0.8 + Math.random() * 0.5)); } }
+  function mutter(kind) {
+    if (muted) return; const now = performance.now(); const prio = kind === 'grumpy' ? 2 : kind === 'defeat' ? 1 : 0; // rival-hit lines beat leprechaun lines
+    if (now - lastSay < 600 && prio <= lastPrio) return; lastPrio = prio; lastSay = now;
+    const list = PHRASES[kind] || PHRASES.run, text = list[(Math.random() * list.length) | 0];
+    if (window.speechSynthesis && window.SpeechSynthesisUtterance) { try {
+      speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = 'en-IE';
+      const grumpy = kind === 'grumpy'; u.pitch = grumpy ? 0.75 : 1.6; u.rate = grumpy ? 1.0 : 1.2; u.volume = 0.35; speechSynthesis.speak(u); return; } catch (e) {} }
+    kind === 'grumpy' ? growl() : gibberish();
+  }
+  // gentle 'oh no' (two soft falling notes) when the pot runs out
+  function ohno() { ftone(523, 0, 0.35, 'triangle', 0.2, 440); ftone(392, 0.35, 0.6, 'triangle', 0.2, 300); }
+  // Electric ZAP (fire): saw+square sweep 2500->300 Hz in 0.1 s through a resonant bandpass,
+  // 90 Hz square ring-mod crackle + a few high-passed noise micro-bursts. ~3 ms attack, ~0.15 s tail.
+  function zapInto(c, dest, t) {
+    const env = c.createGain(), bp = c.createBiquadFilter(), rm = c.createGain(), lfo = c.createOscillator(), lfoG = c.createGain();
+    const o1 = c.createOscillator(), o2 = c.createOscillator(); o1.type = 'sawtooth'; o2.type = 'square';
+    [[o1, 1], [o2, 1.013]].forEach(([o, m]) => { o.frequency.setValueAtTime(2500 * m, t); o.frequency.exponentialRampToValueAtTime(300 * m, t + 0.1); });
+    const mix = c.createGain(); mix.gain.value = 0.5; o1.connect(mix); o2.connect(mix);
+    bp.type = 'bandpass'; bp.Q.value = 4; bp.frequency.setValueAtTime(3000, t); bp.frequency.exponentialRampToValueAtTime(700, t + 0.12);
+    rm.gain.value = 0.55; lfo.type = 'square'; lfo.frequency.value = 90; lfoG.gain.value = 0.45; lfo.connect(lfoG); lfoG.connect(rm.gain); // amplitude crackle
+    env.gain.setValueAtTime(0, t); env.gain.linearRampToValueAtTime(0.5, t + 0.003); env.gain.setTargetAtTime(0.18, t + 0.003, 0.03); env.gain.setTargetAtTime(0, t + 0.09, 0.03);
+    mix.connect(bp); bp.connect(rm); rm.connect(env); env.connect(dest);
+    const end = t + 0.32; [o1, o2, lfo].forEach(o => { o.start(t); o.stop(end); });
+    // crackle micro-bursts
+    const nb = c.createBuffer(1, Math.ceil(c.sampleRate * 0.01), c.sampleRate), d = nb.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / d.length); // windowed, no clicks
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3000; const ng = c.createGain(); ng.gain.value = 0.35; hp.connect(ng); ng.connect(dest);
+    for (let k = 0; k < 4; k++) { const s = c.createBufferSource(); s.buffer = nb; s.connect(hp); s.start(t + 0.005 + k * 0.025 + Math.random() * 0.012); }
+  }
+  function zap() { if (!AC || muted) return; zapInto(AC, zapBus, AC.currentTime + 0.005); }
+  // Cartoon explosion: deep boom (sine 120->40 Hz) + filtered noise blast + sparkle tail
+  function boomInto(c, out, t) { const dest = c.createGain(); dest.gain.value = 0.42; dest.connect(out); // kept under the grunt
+    const o = c.createOscillator(), og = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.6);
+    og.gain.setValueAtTime(0, t); og.gain.linearRampToValueAtTime(0.9, t + 0.008); og.gain.setTargetAtTime(0, t + 0.05, 0.22); o.connect(og); og.connect(dest); o.start(t); o.stop(t + 1.4);
+    const len = Math.ceil(c.sampleRate * 1.2), nb = c.createBuffer(1, len, c.sampleRate), d = nb.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const ns = c.createBufferSource(), lp = c.createBiquadFilter(), ng = c.createGain(); ns.buffer = nb; lp.type = 'lowpass'; lp.frequency.setValueAtTime(6000, t); lp.frequency.exponentialRampToValueAtTime(200, t + 0.9);
+    ng.gain.setValueAtTime(0, t); ng.gain.linearRampToValueAtTime(0.6, t + 0.005); ng.gain.setTargetAtTime(0, t + 0.03, 0.18); ns.connect(lp); lp.connect(ng); ng.connect(dest); ns.start(t); ns.stop(t + 1.2);
+    [1568, 2093, 2637, 3136, 2637, 3520].forEach((f, i) => { const s = c.createOscillator(), sg = c.createGain(), st = t + 0.35 + i * 0.07; s.type = 'sine'; s.frequency.value = f;
+      sg.gain.setValueAtTime(0, st); sg.gain.linearRampToValueAtTime(0.08, st + 0.005); sg.gain.setTargetAtTime(0, st + 0.01, 0.06); s.connect(sg); sg.connect(dest); s.start(st); s.stop(st + 0.4); });
+    // crunch: distorted noise blast
+    const ws = c.createWaveShaper(), cv = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; cv[i] = Math.tanh(x * 6); } ws.curve = cv;
+    const cs = c.createBufferSource(), cf = c.createBiquadFilter(), cg = c.createGain(); cs.buffer = nb; cf.type = 'bandpass'; cf.frequency.setValueAtTime(1800, t); cf.frequency.exponentialRampToValueAtTime(400, t + 0.5); cf.Q.value = 0.8;
+    cg.gain.setValueAtTime(0, t); cg.gain.linearRampToValueAtTime(0.35, t + 0.004); cg.gain.setTargetAtTime(0, t + 0.04, 0.12); cs.connect(ws); ws.connect(cf); cf.connect(cg); cg.connect(dest); cs.start(t); cs.stop(t + 1.2);
+    // fire roar swell
+    const rs = c.createBufferSource(), rf = c.createBiquadFilter(), rg = c.createGain(); rs.buffer = nb; rf.type = 'bandpass'; rf.frequency.value = 450; rf.Q.value = 0.7;
+    rg.gain.setValueAtTime(0, t); rg.gain.linearRampToValueAtTime(0.4, t + 0.12); rg.gain.setTargetAtTime(0, t + 0.3, 0.2); rs.connect(rf); rf.connect(rg); rg.connect(dest); rs.start(t); rs.stop(t + 1.2);
+    // fiery crackle pops
+    const pl = Math.ceil(c.sampleRate * 0.004), pb = c.createBuffer(1, pl, c.sampleRate), pd = pb.getChannelData(0); for (let i = 0; i < pl; i++) pd[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / pl);
+    const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1500; hp.connect(dest);
+    for (let k = 0; k < 18; k++) { const st = t + 0.05 + Math.random() * 0.7, s = c.createBufferSource(), sg = c.createGain(); s.buffer = pb; sg.gain.value = 0.5 * (1 - (st - t) / 0.8) + 0.1; s.connect(sg); sg.connect(hp); s.start(st); }
+  }
+  function boom() { if (!AC || muted) return; boomInto(AC, punch, AC.currentTime + 0.005); }
+  // Leprechaun grunt: mid-range "HUNGH!" (saw+square ~250->150 Hz through two vocal formants + breath). Loudest sound, limited.
+  function gruntInto(c, dest, t) { const p = rand(0.9, 1.12), o = c.createOscillator(), o2 = c.createOscillator(), mix = c.createGain(), f1 = c.createBiquadFilter(), f2 = c.createBiquadFilter(), g = c.createGain();
+    o.type = 'sawtooth'; o2.type = 'square'; [[o, 1], [o2, 1.005]].forEach(([x, m]) => { x.frequency.setValueAtTime(250 * p * m, t); x.frequency.linearRampToValueAtTime(205 * p * m, t + 0.05); x.frequency.exponentialRampToValueAtTime(150 * p * m, t + 0.2); });
+    mix.gain.value = 0.5; o.connect(mix); o2.connect(mix);
+    f1.type = 'bandpass'; f1.frequency.value = 750 * p; f1.Q.value = 4; f2.type = 'bandpass'; f2.frequency.value = 1250 * p; f2.Q.value = 5;
+    const fg1 = c.createGain(), fg2 = c.createGain(); fg1.gain.value = 3.2; fg2.gain.value = 2.0; mix.connect(f1); mix.connect(f2); f1.connect(fg1); f2.connect(fg2); fg1.connect(g); fg2.connect(g);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1.7, t + 0.008); g.gain.setValueAtTime(1.7, t + 0.07); g.gain.setTargetAtTime(0, t + 0.08, 0.045); g.connect(dest);
+    [o, o2].forEach(x => { x.start(t); x.stop(t + 0.45); });
+    const len = Math.ceil(c.sampleRate * 0.05), nb = c.createBuffer(1, len, c.sampleRate), d = nb.getChannelData(0); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len);
+    const ns = c.createBufferSource(), nf = c.createBiquadFilter(), ngn = c.createGain(); ns.buffer = nb; nf.type = 'bandpass'; nf.frequency.value = 1600; nf.Q.value = 1; ngn.gain.value = 0.5; ns.connect(nf); nf.connect(ngn); ngn.connect(dest); ns.start(t); }
+  function grunt() { if (!AC || muted) return; gruntInto(AC, punch, AC.currentTime + 0.005); }
+  // leprechaun hit: grunt, then the crunchy fiery boom
+  function lepHit() { if (!AC || muted) return; const t = AC.currentTime + 0.005; gruntInto(AC, punch, t); boomInto(AC, punch, t + 0.07); }
+  // Cartoon 'hurk-bleh' vomit for each shot: gurgly hurk (triangle 150-300 Hz, irregular wobble, ~750 Hz formant)
+  // then a splashy wet 'bleh' (bandpassed noise with bubbly amplitude blips). ~0.3 s, randomised each call.
+  function bleghInto(c, dest, t) { const p = rand(0.85, 1.2), hurk = rand(0.09, 0.13), tot = rand(0.26, 0.34);
+    const o = c.createOscillator(), f1 = c.createBiquadFilter(), f2 = c.createBiquadFilter(), g = c.createGain(); o.type = 'triangle';
+    o.frequency.setValueAtTime(260 * p, t); for (let k = 1; k <= 8; k++) o.frequency.linearRampToValueAtTime(rand(150, 300) * p, t + k * 0.035); // irregular gurgle wobble
+    f1.type = 'bandpass'; f1.frequency.value = rand(650, 850); f1.Q.value = 3; f2.type = 'lowpass'; f2.frequency.value = 1400;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.5, t + 0.012); g.gain.setTargetAtTime(0.25, t + hurk * 0.6, 0.03); g.gain.setTargetAtTime(0, t + tot * 0.75, 0.035);
+    o.connect(f1); o.connect(f2); f1.connect(g); f2.connect(g); g.connect(dest); o.start(t); o.stop(t + tot + 0.25);
+    const len = Math.ceil(c.sampleRate * 0.3), nb = c.createBuffer(1, len, c.sampleRate), d = nb.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const ts = t + hurk, ns = c.createBufferSource(), nf = c.createBiquadFilter(), ng = c.createGain(), blip = c.createGain(); ns.buffer = nb;
+    nf.type = 'bandpass'; nf.frequency.setValueAtTime(rand(1000, 1400), ts); nf.frequency.exponentialRampToValueAtTime(500, ts + 0.2); nf.Q.value = 1.2;
+    ng.gain.setValueAtTime(0, ts); ng.gain.linearRampToValueAtTime(0.45, ts + 0.01); ng.gain.setTargetAtTime(0, ts + 0.05, 0.05);
+    blip.gain.setValueAtTime(1, ts); for (let k = 0; k < 7; k++) { const bt = ts + 0.015 + k * rand(0.018, 0.03); blip.gain.setTargetAtTime(rand(0.25, 1), bt, 0.004); } // bubbly blips
+    ns.connect(nf); nf.connect(blip); blip.connect(ng); ng.connect(dest); ns.start(ts); ns.stop(ts + 0.3);
+    for (let k = 0; k < 3; k++) { const bt = ts + rand(0.03, 0.17), b = c.createOscillator(), bg = c.createGain(), f = rand(500, 900); b.type = 'sine'; // little bubble pops
+      b.frequency.setValueAtTime(f, bt); b.frequency.exponentialRampToValueAtTime(f * 1.8, bt + 0.04); bg.gain.setValueAtTime(0, bt); bg.gain.linearRampToValueAtTime(0.08, bt + 0.004); bg.gain.setTargetAtTime(0, bt + 0.01, 0.012); b.connect(bg); bg.connect(dest); b.start(bt); b.stop(bt + 0.1); }
+    return tot; }
+  let bleghEnds = [];
+  function blegh() { if (!AC || muted) return; const now = AC.currentTime; bleghEnds = bleghEnds.filter(e => e > now); if (bleghEnds.length >= 3) return; // max 3 overlapping
+    bleghEnds.push(now + bleghInto(AC, master, now + 0.005) + 0.1); }
+  // soft 'oops' (gentle descending two-note) when a scenery unicorn is zapped by accident
+  function oops() { ftone(660, 0, 0.18, 'triangle', 0.16, 600); ftone(495, 0.17, 0.3, 'triangle', 0.16, 440); }
+  // cannon level-up: whoosh up + rising sparkly arpeggio + fanfare + twinkles
+  function upgrade() { tone('sawtooth', 200, 1400, 0.35, 0.05); tone('sine', 300, 2400, 0.4, 0.08);
+    [523, 659, 784, 1047, 1319, 1568].forEach((f, i) => { ftone(f, 0.12 + i * 0.07, 0.22, 'square', 0.07); ftone(f * 2, 0.12 + i * 0.07, 0.18, 'sine', 0.06); });
+    fanfare(0.6, 0.22, 523); [2637, 3136, 3520, 4186, 3136, 4699].forEach((f, i) => ftone(f, 0.7 + i * 0.09, 0.15, 'sine', 0.035)); }
+  // grumpy horse noises (all synth): snort, huff, grumbly neigh, harrumph
+  function nz(dur, f, q, vol, d, out, f2) { if (!AC || muted) return; const t = AC.currentTime + (d || 0), n = Math.ceil(AC.sampleRate * dur), b = AC.createBuffer(1, n, AC.sampleRate), x = b.getChannelData(0);
+    for (let i = 0; i < n; i++) x[i] = Math.random() * 2 - 1; const s = AC.createBufferSource(), bp = AC.createBiquadFilter(), g = AC.createGain(); s.buffer = b; bp.type = 'bandpass'; bp.frequency.setValueAtTime(f, t); if (f2) bp.frequency.exponentialRampToValueAtTime(f2, t + dur); bp.Q.value = q;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(bp); bp.connect(g); g.connect(out || master); s.start(t); s.stop(t + dur + 0.02); }
+  function trill(f, dur, rate, vol, d) { if (!AC || muted) return; const t = AC.currentTime + (d || 0), o = AC.createOscillator(), g = AC.createGain(), am = AC.createOscillator(), ag = AC.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.8, t + dur); am.type = 'square'; am.frequency.value = rate; ag.gain.value = vol * 0.5; g.gain.value = 0;
+    g.gain.setValueAtTime(vol * 0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); am.connect(ag); ag.connect(g.gain); const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    o.connect(lp); lp.connect(g); g.connect(master); o.start(t); am.start(t); o.stop(t + dur + 0.02); am.stop(t + dur + 0.02); }
+  function snort(v = 1) { nz(0.12, 1800, 1.2, 0.35 * v, 0, null, 900); nz(0.22, 1300, 1.0, 0.45 * v, 0.14, null, 600); trill(110, 0.18, 32, 0.25 * v, 0.16); }
+  function huff(v = 1) { nz(0.3, 900, 0.7, 0.4 * v, 0, null, 400); nz(0.25, 700, 0.7, 0.3 * v, 0.38, null, 350); }
+  function grumbleNeigh(v = 1) { if (!AC || muted) return; const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain(), lfo = AC.createOscillator(), lg = AC.createGain(), f = AC.createBiquadFilter();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(260, t); o.frequency.linearRampToValueAtTime(330, t + 0.15); o.frequency.exponentialRampToValueAtTime(150, t + 0.7); lfo.frequency.value = 11; lg.gain.value = 25; lfo.connect(lg); lg.connect(o.frequency);
+    f.type = 'bandpass'; f.frequency.value = 700; f.Q.value = 1.2; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3 * v, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+    o.connect(f); f.connect(g); g.connect(master); o.start(t); lfo.start(t); o.stop(t + 0.8); lfo.stop(t + 0.8); trill(95, 0.25, 26, 0.22 * v, 0.62); }
+  function harrumph(v = 1) { ftone(220, 0, 0.14, 'sawtooth', 0.1 * v, 180); ftone(170, 0.16, 0.3, 'sawtooth', 0.12 * v, 110); nz(0.18, 600, 0.8, 0.25 * v, 0.14, null, 300); }
+  function grumpy(v = 1) { [snort, huff, grumbleNeigh, harrumph][(Math.random() * 4) | 0](v); }
+  function pop() { tone('sine', 600, 1200, 0.1, 0.2); }
+  function toggleMute() { muted = !muted; localStorage.setItem('rbu_mute', muted ? '1' : '0'); if (master) master.gain.value = muted ? 0 : 0.6; if (zapBus) zapBus.gain.value = muted ? 0 : 0.6; if (punch) punch.gain.value = muted ? 0 : 1; if (muted && window.speechSynthesis) speechSynthesis.cancel(); return muted; }
+  // render any sound into another context (used by the sound board / WAV export)
+  function renderWith(c, dest, fn, punchOut) { const sAC = AC, sM = master, sZ = zapBus, sP = punch, sMu = muted; AC = c; master = dest; zapBus = dest; punch = makePunch(c, punchOut || c.destination); muted = false;
+    try { fn(); } finally { AC = sAC; master = sM; zapBus = sZ; punch = sP; muted = sMu; } }
+  return { init, unlock, grunt, gruntInto, lepHit, renderWith, gibberish, growl, tone, oops, blegh, bleghInto, boom, boomInto, zap, zapInto, ohno, coin, kaching, mutter, laugh, defeat, whinny, bleurgh, streakChime, fanfare, upgrade, snort, huff, grumbleNeigh, harrumph, grumpy, pop, toggleMute, get muted() { return muted; } };
+})();
+
+const rand = (x, y) => x + Math.random() * (y - x);
+const S = ["Sound.blegh()", "Sound.streakChime(1)", "Sound.streakChime(3)", "Sound.streakChime(5)", "Sound.streakChime(6)", "Sound.fanfare(0, 0.18, 330)", "Sound.lepHit()", "Sound.grunt()", "Sound.boom()", "Sound.kaching()", "Sound.kaching()", "Sound.laugh()", "Sound.oops()", "Sound.ohno()", "Sound.mutter('run')", "Sound.mutter('grab')", "Sound.mutter('defeat')", "Sound.gibberish()", "Sound.mutter('grumpy')", "Sound.growl()", "Sound.zap()", "Sound.whinny(1)", "Sound.defeat()", "Sound.coin()", "Sound.pop()", "Sound.upgrade()", "Sound.snort()", "Sound.huff()", "Sound.grumbleNeigh()", "Sound.harrumph()"];
+function play(i) { Sound.init(); if (Sound.muted) Sound.toggleMute(); try { (new Function('Sound', S[i]))(Sound); } catch (e) { alert(e.message); } }
+</script></body></html>
